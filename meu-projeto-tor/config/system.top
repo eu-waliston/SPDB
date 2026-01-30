@@ -1,1 +1,96 @@
 # system.top - Arquivo de topologia do sistema distribuído
+
+# Configurações globais
+set SYSTEM_NAME "DistributedProcessSystem"
+set VERSION "1.0"
+set LOG_LEVEL "INFO"
+
+# Definição dos nós
+node coordinator {
+    type master
+    address "coordinator.example.com"
+    port 9000
+    resources {
+        cpu 2
+        memory "4GB"
+        storage "20GB"
+    }
+    services {
+        job_scheduler true
+        load_balancer true
+        monitor true
+    }
+}
+
+node_worker1 {
+    type worker
+    address "worker1.example.com"
+    port 9001
+    resources {
+        cpu 4
+        memory "8GB"
+        storage "50GB"
+    }
+    capabilities {
+        data_processing true
+        machine_leraning true
+        batch_processing true
+    }
+}
+
+node_worker2 {
+    type worker
+    address "worker2.example.com"
+    port 9002
+    resources {
+        cpu 8
+        memory "16GB"
+        storage "100GB"
+    }
+    capabilities {
+        data_processing true
+        real_time_processing true
+        gpu_acceleration true
+    }
+}
+
+node client {
+    type client
+    address "client.example.com"
+    port 9003
+    connections_allowed [ coordinator worker1 worker2]
+}
+
+# Conexões entre nós
+connection coordinator -> worker1 {
+    protocol "tcp"
+    bandwidth "1Gbps"
+    latency "10ms"
+    encrypt true
+}
+
+connection coordinator -> worker2 {
+    protocol "tcp"
+    bandwidth "1Gbps"
+    latency "10ms"
+    encrypt true
+}
+
+connection client -> coordinator {
+    protocol "http"
+    bandwidth "100Mbps"
+    authentication required
+}
+
+# Politica do sistema
+policy load_balancing {
+    algorithm "round_robin"
+    health_check_interval 30
+    failover true
+}
+
+policy security {
+    ssl_required true
+    authentication "jwt"
+    audit_logging true
+}
