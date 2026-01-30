@@ -1,0 +1,325 @@
+# worker2.tor - Nó worker especializado (GPU, processamento em tempo real)
+
+package require Tcl 8.6
+
+namespace eval Worker2 {
+    variable coordinator_channel
+    variable worker_id "worker2"
+    variable worker_type "gpu_processor"
+    variable capabilities [list "gpu_acceleration" "real_time_processing" "data_processing"]
+    variable gpu_available true
+    variable current_load 0
+    variable max_concurrent_jobs 2  # Menos jobs mas mais pesados
+
+    # Conectar ao coordenador
+    proc connectToCoordinator {host port} {
+        puts "=== Worker2 (GPU Specialist) ==="
+        puts "Conectando ao coordenador em $host:$port"
+
+        if {[catch {
+            set ::Worker2::coordinator_channel [socket $host $port]
+            fconfigure $::Worker2::coordinator_channel -buffering line -blocking 0
+
+            # Registrar worker com suas capacidades especiais
+            Worker2::register
+
+            # Configurar handler para mensagens
+            fileevent $::Worker2::coordinator_channel readable Worker2::handleCoordinatorMessage
+
+            puts "Conectado ao coordenador com sucesso"
+            puts "Capacidades: $::Worker2::capabilities"
+            return true
+        } error]} {
+            puts "Erro ao conectar ao coordenador: $error"
+            return false
+        }
+    }
+
+    # Registrar worker no coordenador
+    proc register {} {
+        set worker_info [dict create \
+            id $::Worker2::worker_id \
+            type $::Worker2::worker_type \
+            capabilities $::Worker2::capabilities \
+            gpu_available $::Worker2::gpu_available \
+            max_jobs $::Worker2::max_concurrent_jobs \
+            current_load $::Worker2::current_load \
+            specializations [list "deep_learning" "video_processing" "simulations"]
+        ]
+
+        puts $::Worker2::coordinator_channel "REGISTER:$worker_info"
+        flush $::Worker2::coordinator_channel
+
+        puts "Worker especializado registrado com o coordenador"
+    }
+
+    # Processar mensagens do coordenador
+    proc handleCoordinatorMessage {} {
+        if {[eof $::Worker2::coordinator_channel]} {
+            puts "Conexão com coordenador perdida"
+            close $::Worker2::coordinator_channel
+            return
+        }
+
+        set message [gets $::Worker2::coordinator_channel]
+        if {$message ne ""} {
+            puts "Mensagem do coordenador: $message"
+
+            set parts [split $message ":"]
+            set command [lindex $parts 0]
+            set param1 [lindex $parts 1]
+            set param2 [lindex $parts 2]
+
+            switch $command {
+                "PROCESS_JOB" {
+                    set job_id $param1
+                    set job_data $param2
+                    Worker2::processJob $job_id $job_data
+                }
+                "REGISTERED" {
+                    puts "Registro confirmado pelo coordenador"
+                    # Iniciar heartbeat
+                    after 8000 Worker2::sendHeartbeat  # Heartbeat mais rápido
+                }
+                "STATUS_REQUEST" {
+                    Worker2::sendStatus
+                }
+                "EMERGENCY_JOB" {
+                    # Job de alta prioridade
+                    set job_id $param1
+                    set job_data $param2
+                    Worker2::processEmergencyJob $job_id $job_data
+                }
+                default {
+                    puts "Comando desconhecido: $command"
+                }
+            }
+        }
+    }
+
+    # Processar job normal
+    proc processJob {job_id job_data} {
+        incr ::Worker2::current_load
+        puts "Iniciando processamento GPU do job $job_id"
+        puts "Dados: $job_data"
+        puts "Carga atual: $::Worker2::current_load/$::Worker2::max_concurrent_jobs"
+
+        # Simular processamento GPU (mais rápido que CPU)
+        set processing_time [expr {1500 + int(rand() * 1000)}]  # 1.5-2.5 segundos
+
+        puts "Tempo estimado: [expr {$processing_time/1000.0}] segundos"
+
+        # Simular processamento com tempo variável
+        after $processing_time [list Worker2::completeJob $job_id $job_data "GPU"]
+    }
+
+    # Processar job de emergência (alta prioridade)
+    proc processEmergencyJob {job_id job_data} {
+        puts "⚠️  PROCESSANDO JOB DE EMERGÊNCIA: $job_id"
+        puts "Interrompendo processamento normal para prioridade máxima"
+
+        # Processamento mais rápido para emergências
+        set processing_time 800  # 0.8 segundos
+
+        after $processing_time [list Worker2::completeEmergencyJob $job_id $job_data]
+    }
+
+    # Completar job normal
+    proc completeJob {job_id job_data processor_type} {
+        # Simular resultado com processamento GPU
+        set result "GPU_Processado_[string map {" " "_"} $job_data]_Resultado_Otimo"
+
+        puts "✅ Job $job_id completado com $processor_type"
+        puts "Resultado: $result"
+
+        # Decrementar carga
+        incr ::Worker2::current_load -1
+
+        # Enviar resultado ao coordenador
+        puts $::Worker2::coordinator_channel "JOB_COMPLETE:$job_id:$result:GPU:SUCCESS"
+        flush $::Worker2::coordinator_channel
+
+        # Enviar métricas
+        Worker2::sendMetrics
+    }
+
+    # Completar job de emergência
+    proc completeEmergencyJob {job_id job_data} {
+        set result "EMERGENCY_GPU_Processado_[string map {" " "_"} $job_data]_URGENT"
+
+        puts "🚨 Job de emergência $job_id completado!"
+
+        puts $::Worker2::coordinator_channel "EMERGENCY_COMPLETE:$job_id:$result:CRITICAL_SUCCESS"
+        flush $::Worker2::coordinator_channel
+    }
+
+    # Enviar heartbeat com métricas
+    proc sendHeartbeat {} {
+        if {[info exists ::Worker2::coordinator_channel] && \
+            [eof $::Worker2::coordinator_channel] == 0} {
+
+            # Simular métricas do sistema
+            set cpu_usage [expr {20 + int(rand() * 60)}]  # 20-80%
+            set gpu_temp [expr {50 + int(rand() * 30)}]   # 50-80°C
+            set memory_usage [expr {30 + int(rand() * 50)}]  # 30-80%
+
+            set metrics [dict create \
+                timestamp [clock seconds] \
+                cpu_usage "${cpu_usage}%" \
+                gpu_temp "${gpu_temp}C" \
+                memory_usage "${memory_usage}%" \
+                load "$::Worker2::current_load/$::Worker2::max_concurrent_jobs" \
+                gpu_available $::Worker2::gpu_available \
+                status "healthy"
+            ]
+
+            puts $::Worker2::coordinator_channel "HEARTBEAT:$metrics"
+            flush $::Worker2::coordinator_channel
+
+            puts "Heartbeat enviado com métricas: $metrics"
+
+            # Agendar próximo heartbeat (mais frequente para worker especial)
+            after 8000 Worker2::sendHeartbeat
+        }
+    }
+
+    # Enviar status detalhado
+    proc sendStatus {} {
+        set status [dict create \
+            id $::Worker2::worker_id \
+            type $::Worker2::worker_type \
+            capabilities $::Worker2::capabilities \
+            current_load $::Worker2::current_load \
+            max_load $::Worker2::max_concurrent_jobs \
+            gpu_status $::Worker2::gpu_available \
+            uptime [clock seconds] \
+            performance "high"
+        ]
+
+        puts $::Worker2::coordinator_channel "STATUS_REPORT:$status"
+        flush $::Worker2::coordinator_channel
+
+        puts "Status report enviado"
+    }
+
+    # Enviar métricas de performance
+    proc sendMetrics {} {
+        # Métricas simuladas de GPU
+        set gpu_metrics [dict create \
+            gpu_utilization [expr {70 + int(rand() * 30)}] \
+            vram_usage [expr {4 + int(rand() * 4)}]GB \
+            power_draw [expr {150 + int(rand() * 100)}]W \
+            throughput [expr {10 + int(rand() * 20)}]TFLOPS
+        ]
+
+        puts $::Worker2::coordinator_channel "GPU_METRICS:$gpu_metrics"
+        flush $::Worker2::coordinator_channel
+
+        puts "Métricas GPU enviadas: $gpu_metrics"
+    }
+
+    # Simular falha de GPU (para teste)
+    proc simulateGPUFailure {} {
+        set ::Worker2::gpu_available false
+        puts "⚠️  FALHA DE GPU SIMULADA! Recursos GPU indisponíveis"
+
+        # Notificar coordenador
+        puts $::Worker2::coordinator_channel "GPU_FAILURE:GPU_unavailable_switching_to_CPU"
+        flush $::Worker2::coordinator_channel
+    }
+
+    # Recuperar GPU (para teste)
+    proc recoverGPU {} {
+        set ::Worker2::gpu_available true
+        puts "✅ GPU recuperada! Recursos GPU disponíveis novamente"
+
+        puts $::Worker2::coordinator_channel "GPU_RECOVERED:GPU_available_again"
+        flush $::Worker2::coordinator_channel
+    }
+}
+
+# Script principal do worker especializado
+if {$argc >= 2} {
+    set coordinator_host [lindex $argv 0]
+    set coordinator_port [lindex $argv 1]
+} else {
+    set coordinator_host "localhost"
+    set coordinator_port 9000
+}
+
+# Opções de linha de comando
+if {$argc >= 3} {
+    set option [lindex $argv 2]
+    switch $option {
+        "--test-failure" {
+            after 30000 Worker2::simulateGPUFailure
+            after 60000 Worker2::recoverGPU
+        }
+        "--high-load" {
+            set ::Worker2::max_concurrent_jobs 4
+        }
+    }
+}
+
+# Conectar ao coordenador
+if {[Worker2::connectToCoordinator $coordinator_host $coordinator_port]} {
+    puts ""
+    puts "========================================"
+    puts "Worker Especializado Iniciado"
+    puts "ID: $::Worker2::worker_id"
+    puts "Tipo: $::Worker2::worker_type"
+    puts "Capacidades: $::Worker2::capabilities"
+    puts "Jobs Concorrentes Máximos: $::Worker2::max_concurrent_jobs"
+    puts "========================================"
+    puts ""
+    puts "Aguardando jobs de processamento GPU..."
+    puts "Comandos disponíveis durante execução:"
+    puts "  Envie 'STATUS' para verificar status"
+    puts ""
+
+    # Interface de comandos locais (opcional)
+    proc localCommandInterface {} {
+        puts -nonewline "\nworker2> "
+        flush stdout
+        fileevent stdin readable {
+            set cmd [gets stdin]
+            switch $cmd {
+                "STATUS" {
+                    puts "Carga atual: $::Worker2::current_load"
+                    puts "GPU Disponível: $::Worker2::gpu_available"
+                    Worker2::sendStatus
+                }
+                "METRICS" {
+                    Worker2::sendMetrics
+                }
+                "SIMULATE_FAILURE" {
+                    Worker2::simulateGPUFailure
+                }
+                "RECOVER" {
+                    Worker2::recoverGPU
+                }
+                "EXIT" {
+                    puts "Encerrando worker2..."
+                    exit 0
+                }
+                default {
+                    puts "Comando desconhecido. Use: STATUS, METRICS, SIMULATE_FAILURE, RECOVER, EXIT"
+                }
+            }
+            if {$cmd ne "EXIT"} {
+                after 100 localCommandInterface
+            }
+        }
+    }
+
+    # Iniciar interface local se em modo interativo
+    if {[file isatty stdin]} {
+        after 1000 localCommandInterface
+    }
+
+    # Manter o worker rodando
+    vwait forever
+} else {
+    puts "Falha ao iniciar worker2. Saindo..."
+    exit 1
+}

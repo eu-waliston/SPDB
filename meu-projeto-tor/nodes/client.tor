@@ -1,0 +1,114 @@
+# client.tor - Cliente para submeter jobs
+
+package require Tcl 8.6
+
+namespace eval Client {
+    variable coordinator_channel
+
+    # Conectar ao coordenador
+    proc connect {host port} {
+        puts "Conectando ao coordenador em $host:$port"
+
+        if {[catch {
+            set ::Client::coordinator_channel [socket $host $port]
+            fconfigure $::Client::coordinator_channel -buffering line -blocking 0
+            puts "Conectado ao coordenador com sucesso"
+            return true
+        } error]} {
+            puts "Erro ao conectar: $error"
+            return false
+        }
+    }
+
+    # Submeter job
+    proc submitJob {job_data} {
+        if {![info exists ::Client::coordinator_channel]} {
+            puts "Não conectado ao coordenador"
+            return
+        }
+
+        puts "Submetendo job: $job_data"
+        puts $::Client::coordinator_channel "SUBMIT_JOB:$job_data"
+        flush $::Client::coordinator_channel
+
+        puts "Job submetido com sucesso"
+    }
+
+    # Consultar status
+    proc getStatus {} {
+        if {![info exists ::Client::coordinator_channel]} {
+            puts "Não conectado ao coordenador"
+            return
+        }
+
+        puts $::Client::coordinator_channel "GET_STATUS:"
+        flush $::Client::coordinator_channel
+
+        puts "Solicitação de status enviada"
+    }
+}
+
+# Interface de linha de comando
+proc printUsage {} {
+    puts "Uso:"
+    puts "  tclsh client.tor <host> <port>"
+    puts ""
+    puts "Comandos disponíveis após conexão:"
+    puts "  submit <dados>  - Submeter novo job"
+    puts "  status          - Consultar status do sistema"
+    puts "  help            - Mostrar esta ajuda"
+    puts "  exit            - Sair"
+}
+
+# Loop interativo
+proc interactiveLoop {} {
+    puts "\n=== Cliente Distribuído ==="
+    printUsage
+
+    while {true} {
+        puts -nonewline "\n> "
+        flush stdout
+
+        set input [gets stdin]
+        if {[eof stdin] || $input eq "exit"} {
+            puts "Saindo..."
+            break
+        }
+
+        set parts [split $input " "]
+        set command [lindex $parts 0]
+        set args [lrange $parts 1 end]
+
+        switch $command {
+            "submit" {
+                if {[llength $args] > 0} {
+                    Client::submitJob [join $args " "]
+                } else {
+                    puts "Erro: Forneça dados para o job"
+                }
+            }
+            "status" {
+                Client::getStatus
+            }
+            "help" {
+                printUsage
+            }
+            default {
+                puts "Comando desconhecido. Digite 'help' para ajuda."
+            }
+        }
+    }
+}
+
+# Ponto de entrada
+if {$argc >= 2} {
+    set host [lindex $argv 0]
+    set port [lindex $argv 1]
+
+    if {[Client::connect $host $port]} {
+        interactiveLoop
+    }
+} else {
+    puts "Uso: tclsh client.tor <host> <port>"
+    puts "Exemplo: tclsh client.tor localhost 9000"
+}

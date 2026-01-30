@@ -1,0 +1,139 @@
+# worker1.tor - Nó worker para processamento
+
+package require Tcl 8.6
+
+namespace eval Worker {
+    variable coordinator_channel
+    variable worker_id "worker1"
+    variable worker_type "data_processor"
+
+    #* Conectar ao coordenador
+    proc connectToCoordinator {host port} {
+        puts "Conectando ao coordenador em $host:$port"
+
+        if {[catch {
+            set ::Worker::coordinator_channel [ socket $host $port ]
+            fconfigure $::Worker::coordenador_channel -buffering line -blocking 0
+
+            #* Registrar worker
+            Worker::register
+
+            #* Configurar headler para mensagens
+            fileevent $::Worker::coordenador_channel readdable Worker::handleCoordinatorMessage
+
+            puts "Conectando ao coordenador com sucesso"
+            return true
+        } error ]} {
+            puts "Erro ao conectar ao coordenador: $error"
+            return false
+        }
+    }
+
+    #* Registrar worker no coordenador
+    proc register {} {
+        set worker_info [ dict create \
+            id $::Worker::worker_id \
+            type $::Worker::worker_type \
+            capabilities [list data_processing machine_learning] \
+            load 0
+        ]
+
+        puts $::Worker::coordenador_channel "REGISTER:$server_info"
+        flush $::Worker::coordenador_channel
+
+        puts "Registro enviado ao coordenador"
+    }
+
+    #* PRocessar mensagens do coordenador
+    proc handleCoordinatorMessage {} {
+        if {[eof $::Worker::coordenador_channel]} {
+            puts "Conexão com coordenador perdida"
+            close $::Worker::coordenador_channel
+            return
+        }
+
+        set message [gets $::Worker::coordenador_channel]
+        if ($message ne "") {
+            puts "Mensagem do coordenador: $message"
+
+            set parts[ split $mensagens ":"]
+            set command [ lindex $parts 0]
+
+            switch $command {
+                "PROCESS_JOB" {
+                    set job_id [lindex $parts 1]
+                    set job_data [ lindex $parts 2]
+                    Worker::processJob $job_id $job_data
+                }
+
+                "REGISTERED" {
+                    puts "Registro confirmado pelo coordenador"
+                    # Iniciar heartbeat
+                    after 10000 Worker::sendHeartbeat
+                }
+
+                default {
+                    puts "Comando desconhecido: $command"
+                }
+            }
+        }
+    }
+
+    # Processar job
+    proc processJob (job_id job_data) {
+        puts "Processando job $job_id com dados: $job_data"
+
+        #* Simular processamento
+        after 2000 [ list Worker::completeJob $job_id $job_data ]
+    }
+
+    # Completar job
+    proc completeJob { job_id job_data } {
+
+        #* Simular resultado
+        set result "Processado_${job_data}_por_$::Worker::worker_id"
+
+        puts "Job $job_id completado. Resultado: $result"
+
+        #* Enviar resultado ao coordenador
+        puts $::Worker::coordenador_channel "JOB_COMPLETE:$job_id:$result"
+        flush $::Worker::coordenador_channel
+    }
+
+    #* Enviar heartbeat
+    proc sendHeartbeat {} {
+        if {[info exists ::Worker::coordenador_channel] && \
+            [eof $::Worker::coordenador_channel] == 0 } {
+
+            set timestamp [ clock seconds ]
+            puts $::Worker::coordenador_channel "HEARTBEAT::$timestamp"
+            flush $::Worker::coordenador_channel
+
+            puts "Heartbbeat enviado"
+
+            #* Agendar pŕoxomo heartbeat
+            after 10000 Worker::sendHeartbeat
+        }
+    }
+}
+
+#* Script principal do worker
+if ($argc >= 2) {
+    set coordenador_host [lindex $argv 0]
+    set coordenador_port [lindex $argv 1]
+} else {
+    set coordenador_host "localhost"
+    set coordenador_port 9000
+}
+
+#* Conectar ao coordenador
+if {[Worker::coonnectToCoordinator $coordenador_host $coordenador_port]} {
+    puts "Worker $::Worker::worker_id iniciado"
+    puts "Aguardando job..."
+
+    #* Manter o worker rodando
+    vwait forever
+} else {
+    puts "Falha ao iniciar worker, Saindo....."
+    exit 1
+}
