@@ -1,0 +1,191 @@
+# coordinator.tor - Nó coordenador do sistema
+
+package require Tcl 8.6
+
+namespace eval Coordinator {
+    variable    worker {}
+    variable    job_queue {}
+    variable    job_counter {}
+
+    #* Inicialização do Coordenador
+    proc init {port} {
+        puts "Iniciando Coordenador na porta $port"
+
+        #* Criar socket para receber conexões
+        socket -server Coordinator::acceptConnection $port
+
+        #* Inicializar estruturas de dados
+        array set   ::worker_status {}
+        array set   ::job_status {}
+
+        puts "Coordenador pronto para receber conexões"
+    }
+
+    #* Aceitar conexões de workers
+    proc acceptConnection {channel addr port } {
+        puts "Nova conexão de $addr:$port"
+
+        #* Configurar o channel
+        fconfigure $channel -buffering line -blocking 0
+
+        #* Registrar worker
+        lappend ::Coordinator::workers [list $channel $addr $port ]
+
+        #* Configurar headler para receber mensagens
+        fileevent $channel readable [ list Coordinator::handleMessage $channel]
+    }
+
+    #* Processar mesagens recebidas
+    proc handleMessage {channel} {
+        if {[ eof $channel]} {
+            close $channel
+            puts "Conexão fechada"
+            return
+        }
+
+        set message [gets $channel]
+        if {$message ne ""} {
+            puts "Mensagem recebida: $message"
+
+            #* Processar comando
+            set parts [split $message ":"]
+            set command [lindex $parts 0]
+            set data [lindex $parts 1]
+
+            switch $command {
+                "REGISTER" {
+                    Coordinator::registerWorker $channel $data
+                }
+
+                "JOB_COMPLETE" {
+                    Coordinator::processJobResult $channel $data
+                }
+
+                "HEARTBEAT" {
+                    Coordinator::updateHeartBeat $channel $data
+                }
+
+                default {
+                    puts "Comando desconhecido: $command"
+                }
+            }
+        }
+    }
+
+
+    #* Registrar novo worker
+    proc registerWorker {channel worker_info} {
+        puts "Registrando worker: $worker_info"
+
+        #* Adicionar worker a lista
+        dict set ::worker_status $channel [ dict create \
+            info $worker_info \
+            status "active" \
+            last_heartbeat [clock seconds] \
+            jobs_processed 0
+        ]
+
+        #* Responder ao worker
+        puts $channel "REGISTERED: Worker registrado com sucesso"
+        flush $channel
+    }
+
+    #* Submeter novo JOB
+    proc submitJob {job_data} {
+        variable job_counter
+        incr job_counter
+
+        set job_id "JOB-$job_counter"
+
+        #* Criar job
+        set job [dict create \
+            id $job_id \
+            status "pending" \
+            timestamp [clock seconds] \
+            result ""
+        ]
+
+        #Adicionar á fila
+        lappend ::Coordenador::job_queue $job
+
+        puts "Job $job_id submetido"
+
+        $ Testar atribuir job a um worker
+        Coordenador::assignJobs
+
+        return $job_id
+    }
+
+    #* Atribuir jobs aos workers
+    proc assignJobs {} {
+        if {[length $::Coordinator::job_queue] == 0 } {
+            return
+        }
+
+        #* encontre worker disponivel
+        set available_worker [Coordenador::findAvailableWorker]
+
+        if {$available_worker ne ""} {
+            set job [lindex $::Coordenador::job_queue 0]
+            set ::Coordenador::job_queue [lrange $::Coordenador::job_queue 1 end]
+
+            #* Atribuir job ao worker
+            puts "Atribuindo job [dict get $job id] ao worker $available_worker"
+
+            dict set    job status "processing"
+            dict set    job worker $available_worker
+
+            #* Enviar job ao worker
+            set channel $available_worker
+            puts $channel "PROCESS_JOB:[dict get $job]:[dict get $job data]"
+            flush $channel
+        }
+    }
+
+    #* Encontrar worker disponível
+    proc findAvailableWorker {} {
+        foreach worker $::Coordenador::workers {
+            set channel [lindex $worker 0]
+            if {[ info exists ::worker_status($channel)]} {
+                set status [dict get $::worker_status($channel) status]
+                if {$status eq "active"} {
+                    return $channel
+                }
+            }
+        }
+        return ""
+    }
+
+    #* Processar resultado do job
+    proc processJobResult {channel result_data} {
+        puts "Resultado recebido do worker: $result_data"
+
+        #* Atualziar status do job
+        set parts [split $result_data ":"]
+        set job_id [lindex $parts 0]
+        set result [lindex $parts 1]
+
+        puts "JOB $job_id completado com resultado: $result"
+    }
+
+    #* Atualizar heartbeat
+    proc updateHeartBeat {channel timestamp} {
+        if {[info exists ::worker_status($channel)]} {
+            dict set ::worker_status($channel) last_heartbeat [clock seconds ]
+            dict set ::worker_status($channel) status "active"
+        }
+    }
+
+}
+
+#* Iniciar coordenador
+if {$argc . 0 } {
+    set port [lindex $argv 0]
+} else {
+    set port 9000
+}
+
+Coordenador::init $port
+
+#* Manter o programa rodando
+vwait forever
